@@ -7,11 +7,18 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, Optional
 from langchain_openai import ChatOpenAI
 import os
+import time
 import requests
 import json
 from dotenv import load_dotenv
 from app.database import get_connection
 from app.services.report_service import save_report
+from app.services.local_runner_client import RunnerUnavailable
+from app.services.web_run_service import (
+    collect_web_run,
+    create_running_report,
+    submit_web_run,
+)
 import uuid
 from datetime import datetime
 
@@ -39,14 +46,11 @@ class AgentState(TypedDict):
 # 知识库检索工具
 # ============================================
 def search_knowledge_base(kb_id: str, query: str, max_docs: int = 3, user_id: str = None) -> str:
-    if not kb_id:
+    if not kb_id or not user_id:
         return ""
     conn = get_connection()
     cursor = conn.cursor()
-    if user_id:
-        cursor.execute("SELECT * FROM documents WHERE knowledge_base_id = ? AND user_id = ?", (kb_id, user_id))
-    else:
-        cursor.execute("SELECT * FROM documents WHERE knowledge_base_id = ?", (kb_id,))
+    cursor.execute("SELECT * FROM documents WHERE knowledge_base_id = ? AND user_id = ?", (kb_id, user_id))
     docs = cursor.fetchall()
     conn.close()
     if not docs:
@@ -73,13 +77,14 @@ def identify_intent(state: AgentState):
         state["next_step"] = "run_web_case"
         return state
 
+    user_id = state.get("user_id")
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM api_interfaces")
+    cursor.execute("SELECT id, name FROM api_interfaces WHERE user_id = ?", (user_id,))
     interfaces = cursor.fetchall()
-    cursor.execute("SELECT id, name FROM web_cases")
+    cursor.execute("SELECT id, name FROM web_cases WHERE user_id = ?", (user_id,))
     cases = cursor.fetchall()
-    cursor.execute("SELECT COUNT(*) FROM reports")
+    cursor.execute("SELECT COUNT(*) FROM reports WHERE user_id = ?", (user_id,))
     report_count = cursor.fetchone()[0]
     conn.close()
 
@@ -140,9 +145,9 @@ def generate_case(state: AgentState):
     # 获取已录入的接口和Web用例作为参考
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT name, url, method FROM api_interfaces")
+    cursor.execute("SELECT name, url, method FROM api_interfaces WHERE user_id = ?", (user_id,))
     interfaces = cursor.fetchall()
-    cursor.execute("SELECT name, steps FROM web_cases")
+    cursor.execute("SELECT name, steps FROM web_cases WHERE user_id = ?", (user_id,))
     cases = cursor.fetchall()
     conn.close()
 
@@ -183,7 +188,7 @@ def run_interface(state: AgentState):
     interface_id = state.get("interface_id")
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM api_interfaces WHERE id = ?", (interface_id,))
+    cursor.execute("SELECT * FROM api_interfaces WHERE id = ? AND user_id = ?", (interface_id, state.get("user_id")))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -271,7 +276,7 @@ def run_api_test(state: AgentState):
     user_message = state["messages"][-1]["content"]
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM api_interfaces ORDER BY created_at DESC")
+    cursor.execute("SELECT * FROM api_interfaces WHERE user_id = ? ORDER BY created_at DESC", (state.get("user_id"),))
     interfaces = cursor.fetchall()
 
     target = None
@@ -339,87 +344,60 @@ def run_api_test(state: AgentState):
 
 # ============================================
 # 节点5：执行单个Web用例（前端选择器触发）
-# 真实执行 navigate 步骤（HTTP 请求），其他步骤记录日志
+# 提交给本机 Runner 用 Playwright 打开浏览器真实执行，再轮询回读结果
 # ============================================
-def _execute_web_steps(steps):
-    """执行 Web 用例步骤，返回 (passed_count, failed_count, logs)"""
-    passed_count = 0
-    failed_count = 0
-    logs = []
-    last_status_code = None
-    last_url = None
+_WEB_RUN_POLL_INTERVAL = 2
+_WEB_RUN_POLL_TIMEOUT = 120
 
-    for idx, step in enumerate(steps):
-        action = step.get("action", "")
-        element = step.get("element", "")
-        value = step.get("value", "")
-        expected = step.get("expected", "")
-        log_entry = {
-            "step_index": idx + 1,
-            "action": action,
-            "element": element,
-            "value": value,
-            "status": "passed",
-            "message": ""
-        }
 
-        try:
-            if action in ("navigate", "open", "goto"):
-                # 真实发起 HTTP 请求访问目标 URL
-                url = element or value
-                if not url:
-                    raise ValueError("navigate 步骤缺少 URL")
-                resp = requests.get(url, timeout=30, headers={"User-Agent": "LYAITEST/1.0"})
-                last_status_code = resp.status_code
-                last_url = url
-                resp_time = resp.elapsed.total_seconds()
-                log_entry["message"] = f"步骤{idx+1}: 访问 {url} → 状态码 {resp.status_code} ({resp_time:.2f}s)"
-                if resp.status_code >= 400:
-                    log_entry["status"] = "failed"
-                    log_entry["message"] += f" [失败: 状态码 {resp.status_code}]"
-                    failed_count += 1
-                else:
-                    passed_count += 1
-            elif action in ("assert", "verify", "check"):
-                # 断言步骤：支持状态码断言和文本包含断言
-                if expected:
-                    if "status" in str(element).lower() or "状态码" in str(element):
-                        if last_status_code is not None and str(last_status_code) == str(expected):
-                            log_entry["message"] = f"步骤{idx+1}: 断言状态码={expected} → 通过"
-                            passed_count += 1
-                        else:
-                            log_entry["status"] = "failed"
-                            log_entry["message"] = f"步骤{idx+1}: 断言状态码={expected} → 失败(实际 {last_status_code})"
-                            failed_count += 1
-                    else:
-                        log_entry["message"] = f"步骤{idx+1}: 断言 {element}={expected} → 通过"
-                        passed_count += 1
-                else:
-                    log_entry["message"] = f"步骤{idx+1}: 断言 {element} → 通过"
-                    passed_count += 1
-            else:
-                # click / input / wait / screenshot 等步骤：记录日志
-                detail = f"{element}" + (f" = {value}" if value else "")
-                log_entry["message"] = f"步骤{idx+1}: {action} {detail} → 通过"
-                passed_count += 1
-        except Exception as e:
-            log_entry["status"] = "failed"
-            log_entry["message"] = f"步骤{idx+1}: {action} {element} → 失败: {e}"
-            failed_count += 1
+def _execute_web_steps(state, test_type, test_name, steps):
+    """把用例提交给本机 Runner 真实执行，并轮询回读结果。
 
-        logs.append(log_entry)
+    返回 (passed_count, failed_count, logs, report_id)。Runner 不可用时
+    report_id 为 None，failed_count 记为总步骤数，logs 里带失败原因。
+    """
+    user_id = state.get("user_id") or "unknown"
+    report_id = str(uuid.uuid4())[:8]
 
-    return passed_count, failed_count, logs
+    try:
+        submit_web_run(report_id, [{"name": test_name, "steps": steps}])
+    except RunnerUnavailable as exc:
+        return 0, len(steps), [{"status": "failed", "message": f"无法提交执行：{exc}"}], None
+
+    create_running_report(
+        user_id, test_type, test_name, len(steps),
+        session_id=state.get("session_id"), report_id=report_id,
+    )
+
+    deadline = time.time() + _WEB_RUN_POLL_TIMEOUT
+    result = collect_web_run(report_id, user_id)
+    while result.get("status") == "running" and time.time() < deadline:
+        time.sleep(_WEB_RUN_POLL_INTERVAL)
+        result = collect_web_run(report_id, user_id)
+
+    logs = list(result.get("logs") or [])
+    if result.get("status") == "running":
+        logs.append({
+            "status": "running",
+            "message": f"执行超过 {_WEB_RUN_POLL_TIMEOUT} 秒仍未结束，可稍后在【测试报告】查看最终结果。",
+        })
+
+    return (
+        int(result.get("passed_cases") or 0),
+        int(result.get("failed_cases") or 0),
+        logs,
+        report_id,
+    )
 
 
 def run_web_case(state: AgentState):
     case_id = state.get("web_case_id")
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM web_cases WHERE id = ?", (case_id,))
+    cursor.execute("SELECT * FROM web_cases WHERE id = ? AND user_id = ?", (case_id, state.get("user_id")))
     row = cursor.fetchone()
+    conn.close()
     if not row:
-        conn.close()
         state["messages"].append({"role": "assistant", "content": "⚠️ 未找到选中的Web用例。"})
         state["next_step"] = "end"
         return state
@@ -427,17 +405,7 @@ def run_web_case(state: AgentState):
     case = dict(row)
     steps = json.loads(case.get("steps", "[]"))
 
-    passed_count, failed_count, logs = _execute_web_steps(steps)
-
-    report_id = str(uuid.uuid4())[:8]
-    save_report({
-        "id": report_id, "user_id": state.get("user_id", "unknown"), "session_id": state.get("session_id", "unknown"),
-        "test_type": "web", "test_name": case["name"],
-        "status": "completed", "total_cases": len(steps),
-        "passed_cases": passed_count, "failed_cases": failed_count,
-        "logs": json.dumps(logs),
-    })
-    conn.close()
+    passed_count, failed_count, logs, report_id = _execute_web_steps(state, "web", case["name"], steps)
 
     reply = f"""🌐 Web自动化执行完成
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -445,10 +413,10 @@ def run_web_case(state: AgentState):
 📊 总步骤: {len(steps)}
 ✅ 通过: {passed_count}
 ❌ 失败: {failed_count}
-📄 报告ID: {report_id}
+📄 报告ID: {report_id or '未创建'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 执行日志:
-""" + "\n".join([f"  {l['message']}" for l in logs])
+""" + "\n".join([f"  {l.get('message', '')}" for l in logs])
 
     state["messages"].append({"role": "assistant", "content": reply})
     state["next_step"] = "end"
@@ -462,7 +430,7 @@ def run_web_test(state: AgentState):
     user_message = state["messages"][-1]["content"]
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM web_cases ORDER BY created_at DESC")
+    cursor.execute("SELECT * FROM web_cases WHERE user_id = ? ORDER BY created_at DESC", (state.get("user_id"),))
     cases = cursor.fetchall()
 
     target = None
@@ -473,9 +441,9 @@ def run_web_test(state: AgentState):
             break
     if not target and cases:
         target = dict(cases[0])
+    conn.close()
 
     if not target:
-        conn.close()
         state["messages"].append({
             "role": "assistant",
             "content": "⚠️ 平台中没有已录入的Web用例。请先在【Web自动化】页面添加用例。"
@@ -484,17 +452,7 @@ def run_web_test(state: AgentState):
         return state
 
     steps = json.loads(target.get("steps", "[]"))
-    passed_count, failed_count, logs = _execute_web_steps(steps)
-
-    report_id = str(uuid.uuid4())[:8]
-    save_report({
-        "id": report_id, "user_id": state.get("user_id", "unknown"), "session_id": state.get("session_id", "unknown"),
-        "test_type": "web", "test_name": target["name"],
-        "status": "completed", "total_cases": len(steps),
-        "passed_cases": passed_count, "failed_cases": failed_count,
-        "logs": json.dumps(logs),
-    })
-    conn.close()
+    passed_count, failed_count, logs, report_id = _execute_web_steps(state, "web", target["name"], steps)
 
     reply = f"""🌐 Web自动化执行完成
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -502,10 +460,10 @@ def run_web_test(state: AgentState):
 📊 总步骤: {len(steps)}
 ✅ 通过: {passed_count}
 ❌ 失败: {failed_count}
-📄 报告ID: {report_id}
+📄 报告ID: {report_id or '未创建'}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 执行日志:
-""" + "\n".join([f"  {l['message']}" for l in logs])
+""" + "\n".join([f"  {l.get('message', '')}" for l in logs])
 
     state["messages"].append({"role": "assistant", "content": reply})
     state["next_step"] = "end"
@@ -518,7 +476,7 @@ def run_web_test(state: AgentState):
 def query_report(state: AgentState):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM reports ORDER BY created_at DESC LIMIT 10")
+    cursor.execute("SELECT * FROM reports WHERE user_id = ? ORDER BY created_at DESC LIMIT 10", (state.get("user_id"),))
     reports = cursor.fetchall()
     conn.close()
 

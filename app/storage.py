@@ -1,9 +1,6 @@
 import os
 import uuid
 
-sessions_store = {}
-messages_store = {}
-
 UPLOAD_DIR = "uploads"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)

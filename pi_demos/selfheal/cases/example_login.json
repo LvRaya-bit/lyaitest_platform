@@ -1,0 +1,36 @@
+{
+  "name": "登录页表单校验（含两处故意写错，用于演示自愈）",
+  "description": "打开本地登录页，填入账号密码并提交，断言出现带用户名的欢迎文案。故意埋了两个 bug：提交按钮选择器写错、断言文案不完整，跑起来会失败，交给自愈修正。",
+  "steps": [
+    {
+      "action": "navigate",
+      "element": "{{base_url}}",
+      "value": "",
+      "expected": ""
+    },
+    {
+      "action": "input",
+      "element": "#username",
+      "value": "qa_user",
+      "expected": ""
+    },
+    {
+      "action": "input",
+      "element": "#password",
+      "value": "qa_pass_123",
+      "expected": ""
+    },
+    {
+      "action": "click",
+      "element": "#submit-btn",
+      "value": "",
+      "expected": ""
+    },
+    {
+      "action": "assert",
+      "element": "#welcome",
+      "value": "",
+      "expected": "登录成功"
+    }
+  ]
+}

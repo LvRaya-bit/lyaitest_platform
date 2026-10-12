@@ -1,7 +1,12 @@
 # app/routers/report.py
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List
-from app.services.report_service import get_all_reports, get_reports_by_session, get_report_by_id
+from app.services.report_service import (
+    delete_report,
+    get_all_reports,
+    get_reports_by_session,
+    get_report_by_id,
+)
 from app.dependencies.auth import get_current_user
 from app.models.report import TestReport
 
@@ -27,3 +32,11 @@ async def get_report(report_id: str, current_user: dict = Depends(get_current_us
     if not report:
         raise HTTPException(status_code=404, detail="报告不存在")
     return report
+
+
+@router.delete("/{report_id}")
+async def delete_report_route(report_id: str, current_user: dict = Depends(get_current_user)):
+    """删除一条执行结果；只清理平台记录，不动本机 Runner 上的执行痕迹。"""
+    if not delete_report(report_id, user_id=current_user["id"]):
+        raise HTTPException(status_code=404, detail="报告不存在")
+    return {"message": "删除成功"}

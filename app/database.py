@@ -195,17 +195,18 @@ def init_db():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+        CREATE TABLE IF NOT EXISTS web_exploration_tasks (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            task_type TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            cron_expression TEXT NOT NULL,
-            params TEXT DEFAULT '{}',
-            status TEXT DEFAULT 'enabled',
-            last_run_at TEXT,
-            next_run_at TEXT,
+            start_url TEXT NOT NULL,
+            runner_task_id TEXT,
+            status TEXT DEFAULT 'pending',
+            max_depth INTEGER DEFAULT 3,
+            max_actions INTEGER DEFAULT 100,
+            result_path TEXT,
+            summary TEXT DEFAULT '{}',
+            error TEXT,
+            project_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -256,7 +257,130 @@ def init_db():
             passed INTEGER DEFAULT 1,
             error_message TEXT,
             created_at TEXT NOT NULL,
-            FOREIGN KEY (report_id) REFERENCES reports(id)
+        FOREIGN KEY (report_id) REFERENCES reports(id)
+        )
+    """)
+
+    # APP 自动化与测试用例生成扩展表。保留原有表结构，所有新能力独立存储。
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_devices (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            server_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:4723',
+            device_udid TEXT NOT NULL,
+            app_package TEXT NOT NULL,
+            app_activity TEXT NOT NULL,
+            test_phone TEXT,
+            test_password_env TEXT DEFAULT 'TEST_PASSWORD',
+            capabilities TEXT DEFAULT '{}',
+            status TEXT DEFAULT 'unknown',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_exploration_tasks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            runner_task_id TEXT,
+            status TEXT DEFAULT 'pending',
+            max_depth INTEGER DEFAULT 3,
+            max_actions INTEGER DEFAULT 100,
+            result_path TEXT,
+            summary TEXT DEFAULT '{}',
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (device_id) REFERENCES app_devices(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generated_case_sets (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_path TEXT,
+            source_ref TEXT,
+            status TEXT DEFAULT 'draft',
+            case_count INTEGER DEFAULT 0,
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generated_test_cases (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            set_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            module TEXT,
+            priority TEXT DEFAULT 'P1',
+            test_type TEXT DEFAULT '功能测试',
+            preconditions TEXT,
+            steps TEXT DEFAULT '[]',
+            expected TEXT,
+            source_ref TEXT,
+            automation_status TEXT DEFAULT 'draft',
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (set_id) REFERENCES generated_case_sets(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_test_runs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            case_set_id TEXT,
+            runner_task_id TEXT,
+            status TEXT DEFAULT 'pending',
+            report_path TEXT,
+            summary TEXT DEFAULT '{}',
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (device_id) REFERENCES app_devices(id),
+            FOREIGN KEY (case_set_id) REFERENCES generated_case_sets(id)
+        )
+    """)
+
+    # pi-agent 自愈任务：Runner 的内存 JOBS 重启即丢，历史必须落在平台侧。
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pi_agent_tasks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            case_id TEXT,
+            case_name TEXT,
+            start_url TEXT NOT NULL,
+            storage_state TEXT,
+            runner_task_id TEXT,
+            status TEXT DEFAULT 'pending',
+            exit_code INTEGER,
+            final_url TEXT,
+            page_title TEXT,
+            fixed_test TEXT,
+            memory TEXT,
+            log TEXT,
+            error TEXT,
+            project_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
 

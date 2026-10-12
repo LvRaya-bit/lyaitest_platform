@@ -1,7 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from app.services.auth_service import get_user, verify_password, create_access_token, create_user
+from app.services.auth_service import (
+    DEFAULT_ADMIN_USERNAME,
+    get_user,
+    verify_password,
+    create_access_token,
+    create_user,
+)
 from app.dependencies.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -30,6 +36,8 @@ class UserResponse(BaseModel):
 async def register(request: RegisterRequest):
     if not request.username or not request.password:
         raise HTTPException(status_code=400, detail="用户名和密码不能为空")
+    if request.username.strip().lower() == DEFAULT_ADMIN_USERNAME:
+        raise HTTPException(status_code=400, detail="该用户名不可用，请更换其他用户名")
     user = create_user(request.username, request.password)
     if not user:
         raise HTTPException(status_code=400, detail="用户名已存在")

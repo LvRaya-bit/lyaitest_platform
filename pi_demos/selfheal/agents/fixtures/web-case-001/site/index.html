@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>LYAITEST 测试平台 · 登录</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f8fafc; padding: 40px; }
+    form { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; max-width: 320px; }
+    h1 { font-size: 18px; margin: 0 0 16px; color: #0f172a; }
+    label { display: block; margin-bottom: 12px; font-size: 14px; color: #334155; }
+    input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    button { background: #3b82f6; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+    #welcome { display: none; margin-top: 16px; color: #16a34a; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <form id="login-form" novalidate>
+    <h1>LYAITEST 测试平台</h1>
+    <label>账号 <input id="username" name="username" autocomplete="off"></label>
+    <label>密码 <input id="password" name="password" type="password"></label>
+    <button id="login-submit" type="submit">登录</button>
+  </form>
+
+  <p id="welcome"></p>
+
+  <script>
+    document.getElementById("login-form").addEventListener("submit", function (event) {
+      event.preventDefault();
+      var user = document.getElementById("username").value.trim();
+      var welcome = document.getElementById("welcome");
+      welcome.textContent = "欢迎回来，" + user;
+      welcome.style.display = "block";
+    });
+  </script>
+</body>
+</html>

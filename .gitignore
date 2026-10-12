@@ -18,3 +18,17 @@ venv/
 
 # 上传文件目录
 uploads/
+
+# 本地 Android Runner 运行产物
+local_runner/jobs/
+
+# Node 依赖（体积大，接收方自行 npm install）
+node_modules/
+
+# 用例自愈 demo（pi_demos/selfheal/）：隔离的 pi 配置、每次自愈的工作目录
+pi_demos/selfheal/agents/.pi-agent/
+pi_demos/selfheal/agents/workdir/
+
+# AI 编码工具的本地数据
+.claude/
+.trae/

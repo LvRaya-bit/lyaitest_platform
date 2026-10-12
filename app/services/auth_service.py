@@ -84,3 +84,23 @@ def create_user(username: str, password: str) -> dict:
     conn.commit()
     conn.close()
     return {"id": user_id, "username": username, "created_at": now}
+
+
+DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_ADMIN_PASSWORD = "admin"
+
+
+def ensure_default_admin() -> None:
+    """确保平台存在唯一的默认管理员账户。
+
+    该账户在启动时创建，因此普通用户无法抢注 "admin" 这个用户名：
+    注册接口会因用户名已存在而拒绝。
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = ?", (DEFAULT_ADMIN_USERNAME,))
+    exists = cursor.fetchone()
+    conn.close()
+    if exists:
+        return
+    create_user(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD)

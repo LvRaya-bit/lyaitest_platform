@@ -1,0 +1,37 @@
+{
+  "id": "web-case-001",
+  "name": "登录页表单校验",
+  "description": "打开本地登录页，填入账号密码并提交，断言提交后出现带用户名的欢迎文案",
+  "steps": [
+    {
+      "action": "navigate",
+      "element": "{{base_url}}",
+      "value": "",
+      "expected": "页面加载成功"
+    },
+    {
+      "action": "input",
+      "element": "#username",
+      "value": "qa_user",
+      "expected": ""
+    },
+    {
+      "action": "input",
+      "element": "#password",
+      "value": "qa_pass_123",
+      "expected": ""
+    },
+    {
+      "action": "click",
+      "element": "#login-submit",
+      "value": "",
+      "expected": "表单提交"
+    },
+    {
+      "action": "assert",
+      "element": "#welcome",
+      "value": "",
+      "expected": "欢迎回来，qa_user"
+    }
+  ]
+}

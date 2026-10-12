@@ -84,3 +84,17 @@ def get_report_by_id(report_id: str, user_id: str = None):
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def delete_report(report_id: str, user_id: str = None) -> bool:
+    """删除一条执行结果记录；返回是否真的删到了（用于区分 404）。"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if user_id:
+        cursor.execute("DELETE FROM reports WHERE id = ? AND user_id = ?", (report_id, user_id))
+    else:
+        cursor.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted

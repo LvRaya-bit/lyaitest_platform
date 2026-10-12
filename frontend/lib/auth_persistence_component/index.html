@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>html, body { margin: 0; padding: 0; height: 0; overflow: hidden; }</style>
+</head>
+<body>
+<script>
+  const COOKIE_NAME = "lyaitest_auth";
+  const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
+
+  function send(type, value) {
+    const message = { isStreamlitMessage: true, type };
+    if (type === "streamlit:setComponentValue") message.value = value;
+    if (type === "streamlit:componentReady") message.apiVersion = 1;
+    if (type === "streamlit:setFrameHeight") message.height = 0;
+    window.parent.postMessage(message, "*");
+  }
+
+  function readCookie() {
+    const prefix = COOKIE_NAME + "=";
+    const item = document.cookie.split(";").map(v => v.trim()).find(v => v.startsWith(prefix));
+    if (!item) return null;
+    try {
+      return JSON.parse(decodeURIComponent(item.slice(prefix.length)));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function cookieOptions() {
+    // Streamlit 本地开发通常是 HTTP，生产 HTTPS 时自动增加 Secure。
+    return "; Path=/; Max-Age=" + COOKIE_MAX_AGE + "; SameSite=Lax" +
+      (window.location.protocol === "https:" ? "; Secure" : "");
+  }
+
+  function writeCookie(identity) {
+    document.cookie = COOKIE_NAME + "=" + encodeURIComponent(JSON.stringify(identity)) + cookieOptions();
+  }
+
+  function clearCookie() {
+    document.cookie = COOKIE_NAME + "=; Path=/; Max-Age=0; SameSite=Lax" +
+      (window.location.protocol === "https:" ? "; Secure" : "");
+  }
+
+  function handleRender(event) {
+    const message = event.data || {};
+    // Streamlit 发给组件的 render 消息只带 type/args，不带 isStreamlitMessage；
+    // 后者仅用于组件发回父页面的消息。
+    if (message.type !== "streamlit:render") return;
+    const args = message.args || {};
+    let identity = null;
+    if (args.action === "write") {
+      writeCookie(args.identity || {});
+      identity = args.identity || {};
+    } else if (args.action === "clear") {
+      clearCookie();
+      identity = {};
+    } else {
+      identity = readCookie() || {};
+    }
+    send("streamlit:setComponentValue", {
+      request_id: args.request_id,
+      action: args.action,
+      identity
+    });
+  }
+
+  window.addEventListener("message", handleRender);
+  send("streamlit:componentReady");
+  send("streamlit:setFrameHeight");
+</script>
+</body>
+</html>

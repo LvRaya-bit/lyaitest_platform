@@ -60,7 +60,7 @@ pi_demos/selfheal/
 ## 前置条件
 
 - **Python 3.10+**，且已安装：`playwright`（含 chromium 浏览器）
-- **Node.js ≥ 22.19.0**（只有路线 B 需要；`agents/node_modules` 已随仓库携带）
+- **Node.js ≥ 22.19.0**（只有路线 B 需要）
 - **`ZHIPU_API_KEY`**：两条路线都会从自身目录逐层向上查找 `.env`，也可以直接设成环境变量
 
 ```powershell
@@ -116,7 +116,7 @@ python pi_demos/selfheal/heal_steps.py `
 
 ```powershell
 cd pi_demos\selfheal\agents
-npm install          # node_modules 已随仓库携带，可跳过
+npm install          # 安装 pi-agent 与 tsx 依赖（node_modules 不随仓库分发）
 npm run preflight    # 只做环境自检，不调用模型
 npm run smoke        # 冒烟：只让 agent 做静态分析，不跑测试
 npm run selfheal     # 完整自愈：跑 pytest → 修脚本 → 重跑

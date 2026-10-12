@@ -98,7 +98,7 @@ agents/
 
 ```powershell
 cd pi_demos\selfheal\agents
-npm install            # node_modules 已随仓库携带，可跳过
+npm install            # 安装 pi-agent 与 tsx 依赖（node_modules 不随仓库分发）
 
 npm run preflight      # ① 只有环境自检，不发任何模型请求
 npm run smoke          # ② 冒烟：让 agent 只做静态分析，不跑测试（不需要 playwright）

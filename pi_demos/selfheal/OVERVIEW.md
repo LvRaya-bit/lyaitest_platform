@@ -38,5 +38,5 @@
 ## 前置
 
 - Python 3.10+ + `playwright` + chromium
-- 路线 B 另需 Node ≥ 22.19.0（`node_modules` 已随仓库携带）
+- 路线 B 另需 Node ≥ 22.19.0，并在 `pi_demos/selfheal/agents` 下执行 `npm install`
 - `ZHIPU_API_KEY`（两条路线都需要）
